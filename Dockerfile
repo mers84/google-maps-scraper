@@ -2,22 +2,28 @@
 FROM golang:1.23.2-bullseye AS playwright-deps
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/browsers
 ENV PLAYWRIGHT_DRIVER_PATH=/opt/
+
+# Instalar Node.js y Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* \
-    && go install github.com/playwright-community/playwright-go/cmd/playwright@latest \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar Playwright-Go y descargar navegadores
+RUN go install github.com/playwright-community/playwright-go/cmd/playwright@latest \
     && mkdir -p /opt/browsers \
     && playwright install chromium --with-deps \
+    && mkdir -p /opt/ms-playwright-go \
+    && cp $(go env GOPATH)/bin/playwright /opt/ms-playwright-go \
     && rm -rf /root/.cache/* /root/.npm/*
 
 # Build stage
 FROM golang:1.23.2-bullseye AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY go.mod go.sum ./ 
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /usr/bin/google-maps-scraper
@@ -27,7 +33,7 @@ FROM debian:bullseye-slim
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/browsers
 ENV PLAYWRIGHT_DRIVER_PATH=/opt
 
-# Install only the necessary dependencies in a single layer
+# Instalar dependencias necesarias para Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libnss3 \
@@ -52,12 +58,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Copiar navegadores y el binario de Playwright-Go
 COPY --from=playwright-deps /opt/browsers /opt/browsers
 COPY --from=playwright-deps /opt/ms-playwright-go /opt/ms-playwright-go
 
 RUN chmod -R 755 /opt/browsers \
     && chmod -R 755 /opt/ms-playwright-go
 
+# Copiar el binario compilado del scraper
 COPY --from=builder /usr/bin/google-maps-scraper /usr/bin/
 
 ENTRYPOINT ["google-maps-scraper"]
